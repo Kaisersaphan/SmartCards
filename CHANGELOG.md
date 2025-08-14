@@ -1,6 +1,21 @@
 # Changelog
 All notable changes to the SmartCards script will be documented in this file.
 
+
+## [0.9] - 2025-08-15
+### Added
+- Reconstructed Memory injection system:
+  - Injects SmartCard memories into AI Dungeon’s active context.
+  
+
+### Changed
+- `/sc redo` command:
+  - Skips SC Script / AC Script cards.
+  - Preserves the existing Notes (context summary) when regenerating cards.
+  - **No longer deletes or overwrites existing memories in the card's notes section.**
+
+  ---
+  
 ## [v0.8.2] - 2025-08-14
 ### Added
 - `/sc redo` now preserves Notes (context summary) when regenerating a card.
