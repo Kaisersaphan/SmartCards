@@ -1,5 +1,7 @@
 // INPUT MODIFIER
-// Handles /ac and /sc commands, toggles, redo, config, etc.
+// Purpose: Route /ac and /sc commands to SmartCards.
+// Guarantees that a failure never blocks play; errors are surfaced via state.message.
+
 const modifier = (text) => {
   try {
     if (typeof SmartCards !== "function") return text;
