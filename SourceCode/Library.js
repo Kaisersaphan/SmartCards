@@ -4,7 +4,7 @@
  * Licensed under Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International
  */
 /*
-SmartCards— v0.9.2 (patched)
+SmartCards— v0.9.3
 Author: KaiserSaphan, & Micah (refactor), inspired by AutoCards (LewdLeah)
  *
  * USAGE IN HOOKS (unchanged):
@@ -58,6 +58,14 @@ function SmartCards(hook, inText, inStop) {
     candidatesCap: 100,
     defaultType: "class",
 
+    // --- Multi‑Trigger SmartCards (MTS) ---
+    // Think of TTL as “how long the confetti sticks to the narrative floor.”
+    triggerEnable: true,
+    triggerTTL: 3,
+    triggerMaxPerTurn: 3,
+    triggerCaseInsensitive: true,
+    triggerAnchor: "World Lore:\n",
+
     // --- Character typing aids ---
     characterPronouns: "he, him, his, she, her, hers, they, them, their, theirs",
     relationshipWords: "father, mother, dad, mum, mom, son, daughter, sister, brother, husband, wife, spouse, partner, fiancée, fiancé, friend, buddy, mate, pal, rival, enemy, mentor, mentee, boss, chief, leader, captain, teacher, coach, boyfriend, girlfriend, ex",
@@ -95,7 +103,7 @@ function SmartCards(hook, inText, inStop) {
     banned:new Set("North,East,South,West,Sunday,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,January,February,March,April,May,June,July,August,September,October,November,December".split(","))
   };
 
-  _state.ACM ??= { config: DEFAULT_CFG, lastAutoTurn:-999, candidates:[], pending:null, lastAppliedTitle:null };
+  _state.ACM ??= { config: DEFAULT_CFG, lastAutoTurn:-999, candidates:[], pending:null, lastAppliedTitle:null, MTS:{ activeIdx:[], activeTTL:[], queuedIdx:[], turnHitCount:0 } };
   const S = _state.ACM;
   const CFG = S.config = mergeCfg(DEFAULT_CFG, S.config||{});
   // Normalize 'banned' to a Set if a plain array/object slipped in
@@ -153,7 +161,8 @@ function SmartCards(hook, inText, inStop) {
           return finalize(hook, "\\n", STOP);
         }
 
-        return finalize(hook, TEXT, STOP);
+        if (CFG.triggerEnable) mtsDetectAndQueue(t);
+          return finalize(hook, TEXT, STOP);
       }
 
       case 'context':{
@@ -163,21 +172,27 @@ function SmartCards(hook, inText, inStop) {
         // Apply in‑game config edits, if any
         readConfigCard();
 
+        // MTS: Activate queued triggers and inject matching entries before SmartCards system prompt.
+        let __CTX_AFTER_MTS = TEXT;
+        if (CFG.triggerEnable) {
+          mtsActivateQueued();
+          __CTX_AFTER_MTS = mtsInjectActive(__CTX_AFTER_MTS);
+        }
+
         // If nothing is already queued, scan the recent history for new names
         if (!S.pending) scanForCandidates();
 
         if (S.pending){
           const msg = buildSystemMessage(S.pending);
-          const updated = injectMessage(TEXT, msg);
+          const updated = injectMessage(__CTX_AFTER_MTS, msg);
           runCardScripts("afterContext", { text: updated, turn: TURN() });
           return finalize(hook, updated, STOP);
         } else {
-          runCardScripts("afterContext", { text: TEXT, turn: TURN() });
-          return finalize(hook, TEXT, STOP);
+          runCardScripts("afterContext", { text: __CTX_AFTER_MTS, turn: TURN() });
+          return finalize(hook, __CTX_AFTER_MTS, STOP);
         }
       }
-
-      case 'output':{
+case 'output':{
         if (S.pending){
           const prevPending = S.pending;
           try{
@@ -196,6 +211,7 @@ function SmartCards(hook, inText, inStop) {
             }
           }
         }
+        if (CFG.triggerEnable) mtsDetectAndQueue(TEXT);
         runCardScripts("turnEnd", { turn: TURN() });
         return finalize(hook, TEXT, STOP);
       }
@@ -579,6 +595,164 @@ function SmartCards(hook, inText, inStop) {
     });
   }
 
+
+  // ==================================================
+  //  Multi‑Trigger SmartCards (MTS)
+  //  Injects card.entries for N turns when AND-sets of tokens appear
+  //  in the same block (input/output). No mutation; context-only.
+  //  Notes: Think of AND-lines as friendship bracelets: all beads
+  //  must show up together before the bouncer lifts the velvet rope.
+  // ==================================================
+
+  /**
+   * Parse card.keys into AND-sets. Commas separate lines. '&' joins tokens
+   * that must co-occur. Lines without '&' are treated as single-token sets.
+   * @param {string} keys
+   * @returns {string[][]}
+   */
+  function mtsParseAndKeys(keys){
+    const lines = String(keys||"").split(",").map(s=>s.trim()).filter(Boolean);
+    const out = [];
+    for (const line of lines){
+      const parts = line.split("&").map(s=>s.trim()).filter(Boolean);
+      if (parts.length) out.push(parts);
+    }
+    return out;
+  }
+
+  /** Escape regex special chars */
+  function _mtsEscape(s){ return String(s||"").replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  /**
+   * Check whether a phrase (possibly multi-word) appears in text with
+   * loose word boundaries (so "Bob's" matches bob).
+   * @param {string} text
+   * @param {string} phrase
+   * @returns {boolean}
+   */
+  function mtsContainsToken(text, phrase){
+    if (!phrase) return false;
+    let hay = String(text||"");
+    let tok = String(phrase||"");
+    if (CFG.triggerCaseInsensitive){ hay = hay.toLowerCase(); tok = tok.toLowerCase(); }
+    const words = tok.split(/\s+/).filter(Boolean).map(_mtsEscape);
+    if (!words.length) return false;
+    const pat = "\\b" + words.join("\\s+") + "\\b";
+    try {
+      const re = new RegExp(pat);
+      return re.test(hay);
+    } catch(_){ // If regex fails for any reason, fallback to simple includes
+      return hay.indexOf(tok) !== -1;
+    }
+  }
+
+  /**
+   * Detect cards to trigger from a single text block (input or output).
+   * @param {string} text
+   * @returns {Set<number>}
+   */
+  function mtsDetectInBlock(text){
+    const hits = new Set();
+    const cap = (CFG.triggerMaxPerTurn|0) || 3;
+    let used = 0;
+    const t = String(text||"");
+    for (let i=0;i<_cards.length;i++){
+      const c = _cards[i];
+      if (!c || !c.keys || !c.entry) continue;
+      const sets = mtsParseAndKeys(c.keys);
+      if (!sets.length) continue;
+      let matched = false;
+      for (const andSet of sets){
+        let all = true;
+        for (const token of andSet){
+          if (!mtsContainsToken(t, token)){ all = false; break; }
+        }
+        if (all){ matched = true; break; }
+      }
+      if (matched){
+        hits.add(i);
+        used++;
+        if (used >= cap) break;
+      }
+    }
+    return hits;
+  }
+
+  /** Queue new trigger hits into S.MTS.queuedIdx (deduped). */
+  function mtsDetectAndQueue(block){
+    const hits = mtsDetectInBlock(block);
+    if (!hits.size) return;
+    const q = S.MTS.queuedIdx || (S.MTS.queuedIdx = []);
+    for (const idx of hits){
+      if (!q.includes(idx)) q.push(idx);
+    }
+  }
+
+  /** Activate queued indices into activeIdx/activeTTL with fresh TTLs. */
+  function mtsActivateQueued(){
+    const q = S.MTS.queuedIdx || [];
+    if (!q.length) return;
+    S.MTS.queuedIdx = [];
+    const ttl = toInt(CFG.triggerTTL, 3);
+    for (const idx of q){
+      const at = S.MTS.activeIdx.indexOf(idx);
+      if (at === -1){
+        S.MTS.activeIdx.push(idx);
+        S.MTS.activeTTL.push(ttl);
+      } else {
+        S.MTS.activeTTL[at] = ttl; // reset if already active
+      }
+    }
+  }
+
+  /** Insert text right after the configured anchor, or at the end as fallback. */
+  function mtsInsertAfterAnchor(ctx, insertString){
+    const anchor = String(CFG.triggerAnchor||"");
+    const chunk  = String(insertString||"").trim();
+    if (!chunk) return ctx;
+    if (anchor){
+      const i = ctx.indexOf(anchor);
+      if (i >= 0){
+        return ctx.slice(0, i + anchor.length) + chunk + "\\n" + ctx.slice(i + anchor.length);
+      }
+    }
+    return ctx + "\\n" + chunk + "\\n";
+  }
+
+  /**
+   * Inject active entries (respect max per turn), decrement TTL, and prune.
+   * Avoid duplicate insertion if the exact entry is already present.
+   * @param {string} ctx
+   * @returns {string}
+   */
+  function mtsInjectActive(ctx){
+    let out = String(ctx||"");
+    const cap = (CFG.triggerMaxPerTurn|0) || 3;
+    let injected = 0;
+    for (let i=0;i<S.MTS.activeIdx.length;i++){
+      const idx = S.MTS.activeIdx[i];
+      const ttl = S.MTS.activeTTL[i];
+      const card = _cards[idx];
+      if (!card || !card.entry) continue;
+      const payload = String(card.entry).trim();
+      if (!payload) continue;
+      if (out.indexOf(payload) === -1 && injected < cap){
+        // MTS: We only add confetti if it isn't already on the dance floor.
+        out = mtsInsertAfterAnchor(out, payload);
+        injected++;
+      }
+      S.MTS.activeTTL[i] = ttl - 1;
+    }
+    // Remove expired
+    for (let i=S.MTS.activeIdx.length-1; i>=0; i--){
+      if (S.MTS.activeTTL[i] <= 0){
+        S.MTS.activeIdx.splice(i,1);
+        S.MTS.activeTTL.splice(i,1);
+      }
+    }
+    return out;
+  }
+
   // =============================
   //  CONFIG CARD READ / WRITE
   // =============================
@@ -644,9 +818,14 @@ function SmartCards(hook, inText, inStop) {
       `characterPronouns: ${cfg.characterPronouns}`,
       `relationshipWords: ${cfg.relationshipWords}`,
       `conjunctionGuard: ${cfg.conjunctionGuard}`,
+      `triggerEnable: ${cfg.triggerEnable}`,
+      `triggerTTL: ${cfg.triggerTTL}`,
+      `triggerMaxPerTurn: ${cfg.triggerMaxPerTurn}`,
+      `triggerCaseInsensitive: ${cfg.triggerCaseInsensitive}`,
+      `triggerAnchor: ${cfg.triggerAnchor}`,
       `bannedTitles: ${banned}`,
       ``,
-      `# Supported keys: enabled, cooldownTurns, entryCharLimit, memoryAutoUpdate, memoryCharLimit, ignoreAllCaps, lookback, useBullets, scanBlockLimit, candidatesCap, defaultType, enableCardScripts, characterPronouns, relationshipWords, conjunctionGuard, bannedTitles`
+      `# Supported keys: enabled, cooldownTurns, entryCharLimit, memoryAutoUpdate, memoryCharLimit, ignoreAllCaps, lookback, useBullets, scanBlockLimit, candidatesCap, defaultType, enableCardScripts, characterPronouns, relationshipWords, conjunctionGuard, triggerEnable, triggerTTL, triggerMaxPerTurn, triggerCaseInsensitive, triggerAnchor, bannedTitles`
     ].join('\\n');
   }
 
@@ -700,6 +879,11 @@ function SmartCards(hook, inText, inStop) {
       case 'relationshipWords': CFG.relationshipWords = v || CFG.relationshipWords; break;
       case 'conjunctionGuard': CFG.conjunctionGuard = /^(true|1|yes|on)$/i.test(v); break;
       case 'bannedTitles': CFG.banned = new Set(v.split(',').map(s=>sanitizeTitle(s)).filter(Boolean)); break;
+      case 'triggerEnable': CFG.triggerEnable = /^(true|1|yes|on)$/i.test(v); break;
+      case 'triggerTTL': CFG.triggerTTL = toInt(v, CFG.triggerTTL); break;
+      case 'triggerMaxPerTurn': CFG.triggerMaxPerTurn = toInt(v, CFG.triggerMaxPerTurn); break;
+      case 'triggerCaseInsensitive': CFG.triggerCaseInsensitive = /^(true|1|yes|on)$/i.test(v); break;
+      case 'triggerAnchor': CFG.triggerAnchor = v || CFG.triggerAnchor; break;
       default: break;
     }
   }
@@ -1003,7 +1187,7 @@ function mergeCfg(base, given){
   return out;
 /** 
  * ——— End of SmartCards ———
- * Or is it?..... I AM THE HERALD OF HIS COMMING!
+ * Or is it? I AM THE HERALD OF HIS COMING!
  */
 
 }
