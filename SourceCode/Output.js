@@ -1,5 +1,7 @@
 // OUTPUT MODIFIER
-// Applies pending generations/compressions and schedules the next card.
+// Purpose: Consume SmartCards' pending job using the model's last output,
+// schedule follow-ups, and never block play on errors.
+
 const modifier = (text) => {
   try {
     if (typeof SmartCards !== "function") return text;
