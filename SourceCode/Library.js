@@ -415,7 +415,7 @@ function SmartCards(hook, inText, inStop) {
     for (let i=0;i<_cards.length;i++){
       const c=_cards[i];
       if (!c || !c.title) continue;
-      if (/^AC\s*Script\s*:/i.test(String(c.title))) fn(c, i);
+      if (/^(?:SC|AC)\s*Script\s*:/i.test(String(c.title))) fn(c, i);
     }
   }
   function extractScriptFromCard(card){
