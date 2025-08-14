@@ -1,6 +1,8 @@
 // CONTEXT MODIFIER
-// Lets SmartCards inject its system prompt and manage pending ops.
-// Must return { text, stop } for AI Dungeon.
+// Purpose: Let SmartCards inject a short system prompt when a job is pending
+// and optionally signal the host to stop generation early (`stop = true`)
+// after injecting. Must return { text, stop } for AI Dungeon.
+
 const modifier = (text) => {
   try {
     if (typeof SmartCards !== "function") return { text, stop: false };
