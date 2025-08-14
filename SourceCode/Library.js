@@ -382,8 +382,8 @@ function SmartCards(hook, inText, inStop) {
       card.entry = formatEntry(clean, title);
 
       // Initialize memories header if missing, then check for overflow & schedule compression
-      if (!/SmartCards\s*Mini\s*Memories\s*:/i.test(String(card.description||""))) card.description = `SmartCards Mini Memories:\n`;
-      if (CFG.memoryAutoUpdate && String(card.description||"").length > CFG.memoryCharLimit){
+      if (!/SmartCards\s*Mini\s*Memories\s*:/i.test(String(card.description||""))) card.description = `SmartCards Memories:\n`;
+      if (CFG.memoryAutoUpdate && String(card.description||"").length > CFG.memoryCharLimit && !(p.payload && p.payload.redo)){
         scheduleCompress(title, idx, card.description);
       }
     }
