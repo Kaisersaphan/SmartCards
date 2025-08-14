@@ -66,7 +66,7 @@ function SmartCards(hook, inText, inStop) {
     triggerCaseInsensitive: true,
     triggerAnchor: "World Lore:\n",
 
-    // --- Character typing aids ---
+    // --- Character typing aids... Doesn't help you type ---
     characterPronouns: "he, him, his, she, her, hers, they, them, their, theirs",
     relationshipWords: "father, mother, dad, mum, mom, son, daughter, sister, brother, husband, wife, spouse, partner, fiancée, fiancé, friend, buddy, mate, pal, rival, enemy, mentor, mentee, boss, chief, leader, captain, teacher, coach, boyfriend, girlfriend, ex",
     conjunctionGuard: true,
@@ -228,7 +228,7 @@ case 'output':{
   //  IMPLEMENTATION ZONE
   // ======================
 
-  // --- Character typing helpers ---
+  // --- Character typing helpers (I LIKE TURTLES) ---
   /**
  * Convert a CSV string into a lowercase Set.
  * @param {string} s
@@ -334,7 +334,7 @@ case 'output':{
  * Scan recent history for proper-noun-ish phrases to propose as cards.
  * Mutates S.candidates with unique, not-banned, not-used titles.
  * WHY: Background discovery that feels "smart" without being noisy.
- * SAFETY: Respects CFG.candidatesCap and CFG.lookback to limit churn.
+ * SAFETY: Wear goggles, say the lords prayer. Respects CFG.candidatesCap and CFG.lookback to limit churn.
  */
 
   function scanForCandidates(){
@@ -529,7 +529,7 @@ case 'output':{
   }
 
   // ==================================================
-  //  PER‑ADVENTURE SCRIPT RUNNER ("SC Script:" cards)
+  //  PER‑ADVENTURE SCRIPT RUNNER (Olympic) ("SC Script:" cards)
   // ==================================================
   /**
  * Iterate over all "SC Script:" cards and invoke a callback.
@@ -576,7 +576,7 @@ case 'output':{
     };
   }
   /**
- * Execute per-adventure scripts for a lifecycle event.
+ * Execute per-adventure scripts for a lifecycle event. Or end of life event.
  * @param {string} event - e.g., 'beforeGenerate'
  * @param {object} payload - Event-specific payload
  * RESILIENCE: Errors are caught and shown via state.message.
@@ -597,7 +597,7 @@ case 'output':{
 
 
   // ==================================================
-  //  Multi‑Trigger SmartCards (MTS)
+  //  Multi‑Trigger SmartCards (MTS) AKA MTS-500A GULF OIL RETRIEVAL SYSTEM!
   //  Injects card.entries for N turns when AND-sets of tokens appear
   //  in the same block (input/output). No mutation; context-only.
   //  Notes: Think of AND-lines as friendship bracelets: all beads
@@ -993,7 +993,7 @@ case 'output':{
   //  UTILITIES
   // =============
   /**
- * Normalize text to NFKC and strip control/invisible chars.
+ * Normalize text to NFKC (Not KFC) and strip control/invisible chars.
  * @param {string} s
  * @returns {string}
  * WHY: Keeps regexes sane and reproducible.
@@ -1021,7 +1021,7 @@ case 'output':{
     return t;
   }
   /**
- * Gentle sanitizer for focus/first lines; preserves inner punctuation.
+ * Gentle sanitizer (Non-alcoholic) for focus/first lines; preserves inner punctuation.
  * @param {string} t
  * @returns {string}
  */
