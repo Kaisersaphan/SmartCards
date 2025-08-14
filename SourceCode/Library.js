@@ -2,8 +2,9 @@
  * SmartCards
  * Copyright (c) 2025 KaiserSaphan
  * Licensed under Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International
+ */
 /*
-SmartCards— v0.9.2
+SmartCards— v0.9.2 (patched)
 Author: KaiserSaphan, & Micah (refactor), inspired by AutoCards (LewdLeah)
  *
  * USAGE IN HOOKS (unchanged):
@@ -11,6 +12,19 @@ Author: KaiserSaphan, & Micah (refactor), inspired by AutoCards (LewdLeah)
  *   [text, stop] = SmartCards("context", text, stop);
  *   text = SmartCards("output", text);
  */
+/**
+ * SmartCards — single entry point called by each AI Dungeon hook.
+ * @param {'input'|'context'|'output'} hook - Which lifecycle phase is calling us.
+ * @param {string} inText - The text provided by the host (player input or narrative).
+ * @param {boolean} [inStop] - Host-provided "stop" signal (only meaningful for context).
+ * @returns {string|[string, boolean]} 
+ *   input/output -> returns the (possibly unchanged) text string.
+ *   context      -> returns [text, stop] tuple expected by the host.
+ *
+ * WHY: Centralizes stateful behavior so all three tiny wrappers are dumb and safe.
+ * BE CAREFUL: One pending job at a time (S.pending). Don't spawn nested jobs.
+ */
+
 function SmartCards(hook, inText, inStop) {
   "use strict";
 
@@ -199,6 +213,14 @@ function SmartCards(hook, inText, inStop) {
   // ======================
 
   // --- Character typing helpers ---
+  /**
+ * Convert a CSV string into a lowercase Set.
+ * @param {string} s
+ * @returns {Set<string>}
+ * WHY: Fast membership checks for pronouns/relationship words.
+ * FOOTGUN: Leading/trailing spaces are trimmed; keep CSVs simple.
+ */
+
   function _csvToSet(s) {
     const out = new Set();
     String(s || "").split(",").forEach(x => {
@@ -207,22 +229,55 @@ function SmartCards(hook, inText, inStop) {
     });
     return out;
   }
+  /**
+ * Detect conjunctions in a title.
+ * @param {string} title
+ * @returns {boolean}
+ * WHY: Avoid cards like "Sarah and Jane" when you likely want two cards.
+ * NUANCE: This will also flag creative names like "Salt & Silver" by design.
+ */
+
   function hasConjunction(title) {
     const t = String(title || "").toLowerCase();
     return /\\band\\b|&/.test(t);
   }
+  /**
+ * Check if a passage contains pronouns from config.
+ * @param {string} text
+ * @param {object} cfg
+ * @returns {boolean}
+ * WHY: Helps nudge titles toward "character" classification.
+ */
+
   function hasPronoun(text, cfg) {
     const set = _csvToSet(cfg.characterPronouns);
     const words = String(text || "").toLowerCase().match(/[a-z']+/g) || [];
     for (const w of words) if (set.has(w)) return true;
     return false;
   }
+  /**
+ * Check if a passage contains relationship words (father, mentor, etc.).
+ * @param {string} text
+ * @param {object} cfg
+ * @returns {boolean}
+ * WHY: Relationship words near a title mention are strong character signals.
+ */
+
   function hasRelationshipWord(text, cfg) {
     const set = _csvToSet(cfg.relationshipWords);
     const words = String(text || "").toLowerCase().match(/[a-z’']+/g) || [];
     for (const w of words) if (set.has(w)) return true;
     return false;
   }
+  /**
+ * Find the first sentence that mentions a title (case-insensitive).
+ * @param {string} title
+ * @param {string} text
+ * @returns {string} - The containing sentence or empty string.
+ * WHY: Provides a natural seed line for entry generation.
+ * PORTABILITY: Avoid heavy regex lookbehind in performance-critical paths.
+ */
+
   function sentenceContaining(title, text) {
     // Returns the first sentence that mentions the title; handy for seeding entries
     const t = String(text || "");
@@ -233,6 +288,17 @@ function SmartCards(hook, inText, inStop) {
     }
     return "";
   }
+
+  /**
+ * Heuristic classifier for a title -> desired card type.
+ * @param {string} title
+ * @param {string} sourceText
+ * @param {object} cfg
+ * @returns {{desiredType: string, reason: string, score: number}}
+ * WHY: Gives the generator a head start (e.g., "character" vs defaultType).
+ * TUNING: Adjust thresholds if you expand the signals later.
+ */
+
 
   function classifyTitle(title, sourceText, cfg){
     if (cfg.conjunctionGuard && hasConjunction(title)) {
@@ -248,6 +314,13 @@ function SmartCards(hook, inText, inStop) {
   }
 
   // Scan recent history to queue candidate titles for auto‑generation.
+  /**
+ * Scan recent history for proper-noun-ish phrases to propose as cards.
+ * Mutates S.candidates with unique, not-banned, not-used titles.
+ * WHY: Background discovery that feels "smart" without being noisy.
+ * SAFETY: Respects CFG.candidatesCap and CFG.lookback to limit churn.
+ */
+
   function scanForCandidates(){
     const start = Math.max(0, _hist.length - (CFG.lookback|0));
     const used = new Set(getUsedTitles().map(normTitle));
@@ -269,6 +342,13 @@ function SmartCards(hook, inText, inStop) {
   }
 
   // Extract likely proper‑noun titles from a text block
+  /**
+ * Pull likely titles from a text block via capitalization heuristics.
+ * @param {string} block
+ * @returns {string[]} - Up to 24 unique candidate titles.
+ * WHY: Quick and decent for Western scripts; tweak if your story differs.
+ */
+
   function extractTitles(block){
     const out=new Set();
     const clean=block.replace(/[{}<>\\[\\]]/g," ").replace(/\\s+/g," ");
@@ -278,6 +358,13 @@ function SmartCards(hook, inText, inStop) {
     while((k=re1.exec(clean))){ const c=sanitizeTitle(k[1]); if(skipTitle(c)) continue; out.add(c); }
     return [...out].slice(0,24);
   }
+
+  /**
+ * Pop the newest candidate that isn't already used or banned.
+ * @returns {{title: string, sourceText: string}|null}
+ * WHY: Rate-limited background creation when the user keeps playing.
+ */
+
 
   function nextCandidate(){
     const used=new Set(getUsedTitles().map(normTitle));
@@ -294,6 +381,15 @@ function SmartCards(hook, inText, inStop) {
 
   // Queue a generation job for a given title (optionally with focus/first line)
   /** Queue a generate job for this title. */
+  /**
+ * Queue a generate job for a title.
+ * @param {string} title
+ * @param {{focus?: string, first?: string, redo?: boolean, sourceText?: string}} [opts]
+ * @returns {void}
+ * WHY: Defers model work until the next hook (context/output) safely.
+ * CONTRACT: Leaves S.pending set; only one pending job at a time.
+ */
+
   function scheduleGenerate(title, opts={}){
     if (S.pending) return;
     const idx = findCardIndex(title);
@@ -321,6 +417,14 @@ function SmartCards(hook, inText, inStop) {
   }
 
   // Queue a compression job to prune long memories
+  /**
+ * Queue a compression job for a card's memory section.
+ * @param {string} title
+ * @param {number} idx - Card index
+ * @param {string} memoryText - The current memory block
+ * WHY: Keeps notes scannable; model returns JSON { keep: ['#id', ...] }.
+ */
+
   function scheduleCompress(title, idx, memoryText){
     if (S.pending) return;
     const safeMem = clip(String(memoryText||""), CFG.memoryCharLimit*2);
@@ -329,18 +433,41 @@ function SmartCards(hook, inText, inStop) {
   }
 
   // Build the system message injected into context for the pending job
+  /**
+ * Format the system message injected into the context for the pending job.
+ * @param {object} p - Pending job
+ * @returns {string}
+ * WHY: Clear markers let us reliably extract only the model's answer later.
+ */
+
   function buildSystemMessage(p){
     const prompt = clip(p.payload.prompt, 3200);
     return ">>> SmartCards: system prompt >>>\\n" + prompt + "\\n<<< end SmartCards <<<";
   }
 
   // Append the message to the end of the context
+  /**
+ * Append a system message to the current context.
+ * @param {string} ctx
+ * @param {string} msg
+ * @returns {string}
+ * WHY: Non-invasive context injection with explicit markers.
+ */
+
   function injectMessage(ctx, msg){
     return ctx + "\\n\\n" + msg + "\\n\\n";
   }
 
   // Consume model output for the pending job and apply it to the target Story Card
   /** Apply the model's output for the queued job (generate/compress). */
+  /**
+ * Consume the model's output and apply it to the target card.
+ * @param {string} modelText
+ * @returns {void}
+ * LIFECYCLE: Called from 'output'. Clears S.pending only if it's the same object captured.
+ * EDGE CASES: If JSON keep list is malformed, we fallback to last 20 lines.
+ */
+
   function applyPending(modelText){
     const p=S.pending; if(!p) return;
     const title=p.title; S.lastAppliedTitle=title;
@@ -388,6 +515,12 @@ function SmartCards(hook, inText, inStop) {
   // ==================================================
   //  PER‑ADVENTURE SCRIPT RUNNER ("SC Script:" cards)
   // ==================================================
+  /**
+ * Iterate over all "SC Script:" cards and invoke a callback.
+ * @param {(card: object, index: number)=>void} fn
+ * WHY: Enables per-adventure customization without shipping new code.
+ */
+
   function eachScriptCard(fn){
     for (let i=0;i<_cards.length;i++){
       const c=_cards[i];
@@ -395,11 +528,25 @@ function SmartCards(hook, inText, inStop) {
       if (/^(?:SC|AC)\\s*Script\\s*:/i.test(String(c.title))) fn(c, i);
     }
   }
+  /**
+ * Extract JS code from a card description.
+ * @param {object} card
+ * @returns {string} - Raw JS; supports ```js fenced blocks.
+ * SECURITY: Scripts run with a tiny API only; still treat as trusted content.
+ */
+
   function extractScriptFromCard(card){
     const d = String(card.description||"");
     const m = d.match(/```js([\\s\\S]*?)```/i);
     return (m ? m[1] : d).trim();
   }
+  /**
+ * Build the micro-API exposed to card scripts.
+ * @param {object} card
+ * @returns {object} api
+ * WHY: Keeps the surface small and auditable.
+ */
+
   function apiForScripts(card){
     return {
       addMemory: (title,line)=>SmartCards.API.addMemory(title, line),
@@ -412,6 +559,13 @@ function SmartCards(hook, inText, inStop) {
       card,
     };
   }
+  /**
+ * Execute per-adventure scripts for a lifecycle event.
+ * @param {string} event - e.g., 'beforeGenerate'
+ * @param {object} payload - Event-specific payload
+ * RESILIENCE: Errors are caught and shown via state.message.
+ */
+
   function runCardScripts(event, payload){
     if (!CFG.enableCardScripts) return;
     eachScriptCard((card, idx)=>{
@@ -428,6 +582,13 @@ function SmartCards(hook, inText, inStop) {
   // =============================
   //  CONFIG CARD READ / WRITE
   // =============================
+  /**
+ * Create/update the "SmartCards Config" card with current settings.
+ * @param {boolean} createIfMissing
+ * @returns {boolean}
+ * HOW TO USE: Edit the card notes as key: value lines, then continue.
+ */
+
   function writeConfigCard(createIfMissing){
     let idx = findCardIndex(CONFIG_CARD_TITLE);
     if (idx < 0 && createIfMissing){ idx = createCard(CONFIG_CARD_TITLE); }
@@ -439,6 +600,13 @@ function SmartCards(hook, inText, inStop) {
     return true;
   }
 
+  /**
+ * Read and apply config edits from the "SmartCards Config" card.
+ * @returns {boolean} - true if applied
+ * NOTE: This applies during the 'context' phase before scheduling work.
+ */
+
+
   function readConfigCard(){
     const idx = findCardIndex(CONFIG_CARD_TITLE);
     if (idx < 0) return false;
@@ -449,6 +617,14 @@ function SmartCards(hook, inText, inStop) {
     for (const [k,v] of Object.entries(updates)) applyConfigKV(k,v);
     return true;
   }
+
+  /**
+ * Serialize CFG to a human-editable notes block.
+ * @param {object} cfg
+ * @returns {string}
+ * TIP: Keep keys short; complex structures are out-of-scope by design.
+ */
+
 
   function toConfigText(cfg){
     const banned = [...cfg.banned].join(', ');
@@ -474,6 +650,14 @@ function SmartCards(hook, inText, inStop) {
     ].join('\\n');
   }
 
+  /**
+ * Parse key: value lines from a card description.
+ * @param {string} text
+ * @returns {Object<string,string>}
+ * ROBUSTNESS: Ignores blank lines and comments starting with '#'.
+ */
+
+
   function parseConfigText(text){
     const out = {};
     const lines = String(text||'').split(/\\r?\\n/);
@@ -487,6 +671,15 @@ function SmartCards(hook, inText, inStop) {
     }
     return out;
   }
+
+  /**
+ * Apply a single config key/value pair to CFG.
+ * @param {string} key
+ * @param {string} raw
+ * @returns {void}
+ * SAFETY: Unknown keys are ignored; types are validated/coerced.
+ */
+
 
   function applyConfigKV(key, raw){
     const v = (raw||'').trim();
@@ -511,6 +704,14 @@ function SmartCards(hook, inText, inStop) {
     }
   }
 
+  /**
+ * Parse a possibly-messy numeric string.
+ * @param {string} s
+ * @param {number} d - default value
+ * @returns {number}
+ */
+
+
   function toInt(s, d){
     const n = parseInt(String(s).replace(/[^0-9\\-]/g,''), 10);
     return Number.isFinite(n)? n : d;
@@ -519,9 +720,21 @@ function SmartCards(hook, inText, inStop) {
   // ==================
   //  CARD MANAGEMENT
   // ==================
+  /**
+ * Gather all current card titles.
+ * @returns {string[]}
+ */
+
   function getUsedTitles(){
     return _cards.map(c=> c&&c.title? String(c.title):"").filter(Boolean);
   }
+  /**
+ * Find a card index by normalized title.
+ * @param {string} title
+ * @returns {number} - index or -1
+ * NORMALIZATION: Case-insensitive and punctuation-insensitive.
+ */
+
   function findCardIndex(title){
     const key=normTitle(title);
     for(let i=0;i<_cards.length;i++){
@@ -530,6 +743,14 @@ function SmartCards(hook, inText, inStop) {
     }
     return -1;
   }
+  /**
+ * Create a new story card with a temporary handle, then retitle.
+ * @param {string} title
+ * @param {string} [forcedType]
+ * @returns {number} - Card index or -1
+ * UX: Seeds entry with a plain label; generator will flesh it out.
+ */
+
   function createCard(title, forcedType){
     const tmp = "%@%"+Math.random().toString(36).slice(2);
     _add(tmp);
@@ -548,11 +769,24 @@ function SmartCards(hook, inText, inStop) {
   // ==================
   //  MEMORY HELPERS
   // ==================
+  /**
+ * Make a tiny stable-ish hex hash for memory IDs.
+ * @param {string} s
+ * @returns {string} - six hex chars
+ * NOTE: Not cryptographically secure; it's a friendly label generator.
+ */
+
   function hash6(s){
     let h=0;
     for (let i=0;i<s.length;i++){ h=((h<<5)-h + s.charCodeAt(i))|0; }
     return (h>>>0).toString(16).slice(0,6);
   }
+  /**
+ * Prefix a content hash with '#' to form an id token.
+ * @param {string} text
+ * @returns {string} - '#xxxxxx'
+ */
+
   function ensureIdForLine(text){ return "#"+hash6(text); }
 
   SmartCards.API = SmartCards.API || {};
@@ -574,12 +808,25 @@ function SmartCards(hook, inText, inStop) {
   // =============
   //  UTILITIES
   // =============
+  /**
+ * Normalize text to NFKC and strip control/invisible chars.
+ * @param {string} s
+ * @returns {string}
+ * WHY: Keeps regexes sane and reproducible.
+ */
+
   function normalize(s){
     try{s=String(s||"").normalize('NFKC');}catch(_){s=String(s||"");}
     return s
       .replace(/[\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\uFEFF]/g,'')
       .replace(/[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]/g,'');
   }
+  /**
+ * Sanitize a title by trimming quotes/brackets and condensing whitespace.
+ * @param {string} t
+ * @returns {string}
+ */
+
   function sanitizeTitle(t){
     t = normalize(t)
       .replace(/^\\s+|\\s+$/g,'')
@@ -589,26 +836,64 @@ function SmartCards(hook, inText, inStop) {
       .trim();
     return t;
   }
+  /**
+ * Gentle sanitizer for focus/first lines; preserves inner punctuation.
+ * @param {string} t
+ * @returns {string}
+ */
+
   function sanitizeSoft(t){
     return normalize(t)
       .replace(/[\\n\\r]+/g,' ')
       .replace(/^[\\'\"“”‘’`{\\[]+|[\\'\"“”‘’`}\\]]+$/g, '')
       .trim();
   }
+  /**
+ * Normalize a title for identity checks (case/punct insensitive).
+ * @param {string} t
+ * @returns {string}
+ */
+
   function normTitle(t){
     return sanitizeTitle(t).toLowerCase().replace(/[^a-z0-9]+/g,' ').replace(/\\s+/g,' ').trim();
   }
+  /**
+ * Quick stopword/structure filter for extracted titles.
+ * @param {string} s
+ * @returns {boolean} - true if we should skip
+ */
+
   function commonStop(s){
     const lw=s.toLowerCase();
     return ["you","the","a","an"].includes(lw) || /^(chapter|act|scene|page)\\b/i.test(s) || /\\d/.test(s);
   }
+  /**
+ * Coarse filter for junk titles, all-caps (if configured), or too-short.
+ * @param {string} c
+ * @returns {boolean}
+ */
+
   function skipTitle(c){
     if(!c||c.length<2) return true;
     if (CFG.ignoreAllCaps && c===c.toUpperCase()) return true;
     if (commonStop(c)) return true;
     return false;
   }
+  /**
+ * Strip trailing numbers (e.g., 'Act 3' -> 'Act').
+ * @param {string} s
+ * @returns {string}
+ */
+
   function denumber(s){ return s.replace(/\\s*\\d+$/,''); }
+
+  /**
+ * Extract only the model content after our end marker, if present.
+ * @param {string} s
+ * @returns {string|null}
+ * WHY: Some models echo prompts; this trims the wrapper politely.
+ */
+
 
   function extractAfterMarker(s) {
     const modern = />{3}\\s*SmartCards\\s*:.*?<<?\\s*end\\s*SmartCards\\s*<<?\\s*([\\s\\S]*)/i.exec(s);
@@ -616,12 +901,33 @@ function SmartCards(hook, inText, inStop) {
     return null;
   }
 
+  /**
+ * Clip text to n chars, trimming rightmost whitespace, append ellipsis if needed.
+ * @param {string} s
+ * @param {number} n
+ * @returns {string}
+ */
+
+
   function clip(s,n){ s=String(s||"").replace(/\\s+$/,''); return s.length<=n? s : (s.slice(0,Math.max(0,n-1)).trimEnd()+"…"); }
+  /**
+ * Format an entry to bullets if configured; leaves as-is if already bulleted.
+ * @param {string} text
+ * @returns {string}
+ */
+
   function formatEntry(text){
     const t=String(text||"").trim(); if(!t) return "";
     if(CFG.useBullets && !/^\\s*[-•]/.test(t)) return "- "+t.replace(/\\n+/g,"\\n- ");
     return t;
   }
+  /**
+ * Parse a JSON block and pull a sanitized list of #ids to keep.
+ * @param {string} s
+ * @returns {string[]} - normalized '#xxxxxx' ids
+ * RESILIENCE: Returns [] on any parse error.
+ */
+
   function parseKeepIds(s){
     try{
       const m=s.match(/\\{[\\s\\S]*\\}/);
@@ -635,6 +941,14 @@ function SmartCards(hook, inText, inStop) {
     } catch(_){ return []; }
   }
 
+  /**
+ * Is a title banned by exact or first-word match.
+ * @param {string} t
+ * @returns {boolean}
+ * TIP: Useful for weekdays/months/directions that look like names.
+ */
+
+
   function isBanned(t){
     if(!t) return true;
     const lower = new Set(Array.from(CFG.banned || []).map(x=>String(x).toLowerCase()));
@@ -645,6 +959,15 @@ function SmartCards(hook, inText, inStop) {
   }
 
   // Standardize return shape back to the host per hook.
+  /**
+ * Return data to the host in the expected shape per hook.
+ * @param {string} h - hook
+ * @param {string} t - text
+ * @param {boolean} s - stop
+ * @returns {string|[string, boolean]}
+ * SIDE EFFECT: Persists CFG back to state for the next turn.
+ */
+
   function finalize(h,t,s){
     _state.ACM.config=CFG;
     switch(h){
@@ -657,6 +980,14 @@ function SmartCards(hook, inText, inStop) {
 // ==============================
 //  CONFIG MERGE (shallow‑smart)
 // ==============================
+/**
+ * Shallow-smart merge of config objects with Set handling for 'banned'.
+ * @param {object} base
+ * @param {object} given
+ * @returns {object} - merged config
+ * WHY: Durable across reloads; safe defaulting for nested simple objects.
+ */
+
 function mergeCfg(base, given){
   const out=JSON.parse(JSON.stringify(base));
   if (base.banned instanceof Set) out.banned = new Set(base.banned);
@@ -670,4 +1001,9 @@ function mergeCfg(base, given){
     }
   }
   return out;
+/** 
+ * ——— End of SmartCards ———
+ * Or is it?..... I AM THE HERALD OF HIS COMMING!
+ */
+
 }
