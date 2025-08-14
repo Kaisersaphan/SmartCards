@@ -19,10 +19,11 @@ Follow these steps to install:
 
 ### 3. Paste SmartCards Code 
 (Delete anything in the tabs mentioned below)
-1. Copy the INPUT script, and paste it into your input tab,
-2. Copy the CONEXT script and paste it into your context tab.
-3. Copy the [**Library Script**](https://github.com/Kaisersaphan/SmartCards/blob/main/SourceCode/Library.js) and paste it into your library tab.
-4. Click **Save**.
+1. Copy the [INPUT](https://github.com/Kaisersaphan/SmartCards/blob/main/SourceCode/Input.js) script, and paste it into your input tab,
+2. Copy the [CONTEXT](https://github.com/Kaisersaphan/SmartCards/blob/main/SourceCode/Context.js) script and paste it into your context tab.
+3. Copy the [OUTPUT](https://github.com/Kaisersaphan/SmartCards/blob/main/SourceCode/Output.js) script and past it into your output tab.
+4. Copy the [**Library Script**](https://github.com/Kaisersaphan/SmartCards/blob/main/SourceCode/Library.js) and paste it into your library tab.
+5. Click **Save**.
 
 
 ### 4. Configure SmartCards
