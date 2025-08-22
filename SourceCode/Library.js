@@ -104,7 +104,16 @@ const _cards = (typeof storyCards !== 'undefined') ? storyCards : _g.__SC_CARDS_
     banned:new Set("North,East,South,West,Sunday,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,January,February,March,April,May,June,July,August,September,October,November,December".split(","))
   };
 
-  _state.ACM ??= { config: DEFAULT_CFG, lastAutoTurn:-999, candidates:[], pending:null, lastAppliedTitle:null, MTS:{ activeIdx:[], activeTTL:[], queuedIdx:[], turnHitCount:0 } };
+if (_state.ACM == null) {
+  _state.ACM = {
+    config: DEFAULT_CFG,
+    lastAutoTurn: -999,
+    candidates: [],
+    pending: null,
+    lastAppliedTitle: null,
+    MTS: { activeIdx: [], activeTTL: [], queuedIdx: [], turnHitCount: 0 }
+  };
+}
   const S = _state.ACM;
   const CFG = S.config = mergeCfg(DEFAULT_CFG, S.config||{});
   // Normalize 'banned' to a Set if a plain array/object slipped in
