@@ -144,7 +144,7 @@ if (_state.ACM == null) {
         runCardScripts("beforeCommand", { raw: t, turn: TURN() });
 
         // Rich command: /ac <Title> / <Focus?> / <FirstLine?>
-        const rich = t.match(/^\\s*\\/(?:ac|sc)\\s+(.+?)(?:\\s*\\/\\s*(.*?))?(?:\\s*\\/\\s*(.*?))?\\s*$/i);
+       const rich = t.match(/^\s*\/(?:ac|sc)\s+(.+?)(?:\s*\/\s*(.*?))?(?:\s*\/\s*(.*?))?\s*$/i);
         if (rich){
           const title = sanitizeTitle(rich[1]||'');
           const focus = sanitizeSoft(rich[2]||'');
