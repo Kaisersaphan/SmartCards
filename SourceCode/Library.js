@@ -304,16 +304,22 @@ case 'output':{
  * PORTABILITY: Avoid heavy regex lookbehind in performance-critical paths.
  */
 
-  function sentenceContaining(title, text) {
-    // Returns the first sentence that mentions the title; handy for seeding entries
-    const t = String(text || "");
-    const pieces = t.split(/(?<=[\\.\\?\\!])\\s+/);
-    const rx = new RegExp("\\\\b" + title.replace(/[.*+?^${}(, "i")|[\\]\\\\]/g, '\\\\$&') + "\\\\b");
-    for (const s of pieces) {
-      if (rx.test(s)) return s;
-    }
-    return "";
+function sentenceContaining(title, text) {
+  const t = String(text || "");
+  const parts = t.split(/([.?!])/);
+  const sentences = [];
+  for (let i = 0; i < parts.length; i += 2) {
+    const base = parts[i] || "";
+    const punct = parts[i + 1] || "";
+    const s = (base + punct).trim();
+    if (s) sentences.push(s);
   }
+  const rx = new RegExp("\\b" + _escapeRegex(String(title || "")) + "\\b", "i");
+  for (const s of sentences) {
+    if (rx.test(s)) return s;
+  }
+  return "";
+}
 
   /**
  * Heuristic classifier for a title -> desired card type.
