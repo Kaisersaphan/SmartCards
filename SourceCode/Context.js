@@ -14,7 +14,7 @@ const modifier = (text) => {
 
     // SmartCards returns [text, stop] for 'context'
     if (Array.isArray(out)) {
-      return { text: String(out[0] ?? text), stop: !!out[1] };
+return { text: String((out[0] !== null && out[0] !== undefined) ? out[0] : text), stop: !!out[1] };
     }
 
     // Defensive fallback (shouldn't happen)
