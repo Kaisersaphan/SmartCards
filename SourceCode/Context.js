@@ -18,7 +18,7 @@ return { text: String((out[0] !== null && out[0] !== undefined) ? out[0] : text)
     }
 
     // Defensive fallback (shouldn't happen)
-    return { text: String(out ?? text), stop: false };
+    return { text: String((out !== undefined && out !== null) ? out : text), stop: false };
   } catch (e) {
     try { state.message = "SmartCards (context) error: " + String(e.message || e); } catch(_) {}
     return { text, stop: false };
