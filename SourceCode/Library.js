@@ -31,14 +31,15 @@ function SmartCards(hook, inText, inStop) {
   // ================================
   //  ENVIRONMENT GUARDS / POLYFILLS
   // ================================
-const _g = (typeof global !== 'undefined') ? global : (typeof window !== 'undefined' ? window : {});
-if (!_g.__SC_STATE__) _g.__SC_STATE__ = {};
-const _state = (typeof state !== 'undefined') ? state : _g.__SC_STATE__;
-if (!_g.__SC_CARDS__) _g.__SC_CARDS__ = [];
-const _cards = (typeof storyCards !== 'undefined') ? storyCards : _g.__SC_CARDS__;
-  const _cards = (typeof storyCards !== 'undefined') ? storyCards : (_g.__SC_CARDS__ ||= []);
-  const _add   = (typeof addStoryCard === 'function') ? addStoryCard : (t)=>{ _cards.push({ title:t, type:'class', keys:'', entry:'', description:'' }); };
-  const TURN   = ()=> (Number.isInteger(_info.actionCount)? _info.actionCount : (_hist? _hist.length:0))|0;
+  var _g = (typeof global !== 'undefined') ? global : (typeof window !== 'undefined' ? window : {});
+  if (!_g.__SC_STATE__) _g.__SC_STATE__ = {};
+  var _state = (typeof state !== 'undefined') ? state : _g.__SC_STATE__;
+  var _info  = (typeof info  !== 'undefined') ? info  : { actionCount: 0 };
+  var _hist  = (typeof history !== 'undefined') ? history : [];
+  if (!_g.__SC_CARDS__) _g.__SC_CARDS__ = [];
+  var _cards = (typeof storyCards !== 'undefined') ? storyCards : _g.__SC_CARDS__;
+  var _add   = (typeof addStoryCard === 'function') ? addStoryCard : function(t){ _cards.push({ title:t, type:'class', keys:'', entry:'', description:'' }); };
+  var TURN   = function(){ return (Number.isInteger(_info.actionCount)? _info.actionCount : (_hist? _hist.length:0))|0; };
 
   const CONFIG_CARD_TITLE = "SmartCards Config";
 
